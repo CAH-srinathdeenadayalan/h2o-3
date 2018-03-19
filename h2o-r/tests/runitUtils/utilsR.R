@@ -842,7 +842,24 @@ buildModelSaveMojoGLM <- function(params) {
   return(list("model"=model, "dirName"=tmpdir_name))
 }
 
-mojoH2Opredict<-function(model, tmpdir_name, filename) {
+buildModelSaveMojoGLRM <- function(params) {
+  model <- do.call("h2o.glrm", params)
+  model_key <- model@model_id
+  tmpdir_name <- sprintf("%s/tmp_model_%s", sandbox(), as.character(Sys.getpid()))
+  if (.Platform$OS.type == "windows") {
+    shell(sprintf("C:\\cygwin64\\bin\\rm.exe -fr %s", normalizePath(tmpdir_name)))
+    shell(sprintf("C:\\cygwin64\\bin\\mkdir.exe -p %s", normalizePath(tmpdir_name)))
+  } else {
+    safeSystem(sprintf("rm -fr %s", tmpdir_name))
+    safeSystem(sprintf("mkdir -p %s", tmpdir_name))
+  }
+  h2o.saveMojo(model, path = tmpdir_name, force = TRUE) # save mojo
+  h2o.saveModel(model, path = tmpdir_name, force=TRUE) # save model to compare mojo/h2o predict offline
+
+  return(list("model"=model, "dirName"=tmpdir_name))
+}
+
+mojoH2Opredict<-function(model, tmpdir_name, filename, xFactor=FALSE) {
   newTest <- h2o.importFile(filename)
   predictions1 <- h2o.predict(model, newTest)
 
@@ -872,9 +889,18 @@ mojoH2Opredict<-function(model, tmpdir_name, filename) {
     tmpdir_name
     )
   }
+  
+  if (xFactor) {
+    cmd <- paste(cmd, "--xfactor", sep=" ")
+  }
+  
   safeSystem(cmd)  # perform mojo prediction
   predictions2 = h2o.importFile(paste(tmpdir_name, "out_mojo.csv", sep =
   '/'), header=T)
 
-  return(list("h2oPredict"=predictions1, "mojoPredict"=predictions2))
+  if (xFactor) {
+    return(list("frameId"=h2o.getId(newTest), "mojoPredict"=predictions2))
+  } else {
+    return(list("h2oPredict"=predictions1, "mojoPredict"=predictions2))
+  }
 }

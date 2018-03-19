@@ -2,6 +2,7 @@ package hex;
 
 import hex.genmodel.GenModel;
 import hex.genmodel.MojoModel;
+import hex.genmodel.algos.glrm.GlrmMojoModel;
 import hex.genmodel.easy.EasyPredictModelWrapper;
 import hex.genmodel.easy.RowData;
 import hex.genmodel.easy.exception.PredictException;
@@ -2061,7 +2062,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
 
         // Compare predictions, counting mis-predicts
         for (int row=0; row<fr.numRows(); row++) { // For all rows, single-threaded
-          if (rnd.nextDouble() >= fraction) continue;
+     //     if (rnd.nextDouble() >= fraction) continue;
           num_total++;
 
           // Native Java API
@@ -2092,6 +2093,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
             ss.getStreamWriter().writeTo(os);
             os.close();
             genmodel = MojoModel.load(filename);
+
             features = MemoryManager.malloc8d(genmodel._names.length);
           } catch (IOException e1) {
             e1.printStackTrace();
@@ -2108,8 +2110,10 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
         RowData rowData = new RowData();
         BufferedString bStr = new BufferedString();
         for (int row = 0; row < fr.numRows(); row++) { // For all rows, single-threaded
-          if (rnd.nextDouble() >= fraction) continue;
+      //    if (rnd.nextDouble() >= fraction) continue;
 
+          if (genmodel instanceof GlrmMojoModel)  // enable random seed setting to ensure reproducibility
+            ((GlrmMojoModel) genmodel)._rcnt = row;
           // Generate input row
           for (int col = 0; col < features.length; col++) {
             if (dvecs[col].isString()) {
@@ -2127,6 +2131,9 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
           // Make a prediction
           AbstractPrediction p;
           try {
+            if (genmodel instanceof GlrmMojoModel)  // enable random seed setting to ensure reproducibility
+              ((GlrmMojoModel) genmodel)._rcnt = row;
+
             p = epmw.predict(rowData);
           } catch (PredictException e) {
             num_errors++;
@@ -2167,7 +2174,8 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
                 d2 = (col == 0) ? mmp.labelIndex : mmp.classProbabilities[col - 1];
                 break;
               case DimReduction:
-                d2 = ((DimReductionModelPrediction) p).dimensions[col];
+                d2 = (genmodel instanceof GlrmMojoModel)?((DimReductionModelPrediction) p).reconstructed[col]:
+                        ((DimReductionModelPrediction) p).dimensions[col];    // look at the reconstructed matrix
                 break;
             }
             expected_preds[col] = d;

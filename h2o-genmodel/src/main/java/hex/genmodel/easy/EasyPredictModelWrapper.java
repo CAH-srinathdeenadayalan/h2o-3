@@ -4,6 +4,7 @@ import hex.ModelCategory;
 import hex.genmodel.GenModel;
 import hex.genmodel.IClusteringModel;
 import hex.genmodel.algos.deepwater.DeepwaterMojoModel;
+import hex.genmodel.algos.glrm.GlrmMojoModel;
 import hex.genmodel.algos.word2vec.WordEmbeddingModel;
 import hex.genmodel.easy.error.VoidErrorConsumer;
 import hex.genmodel.easy.exception.PredictException;
@@ -16,7 +17,10 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.URL;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * An easy-to-use prediction wrapper for generated models.  Instantiate as follows.  The following two are equivalent.
@@ -352,11 +356,12 @@ public class EasyPredictModelWrapper implements Serializable {
    * @throws PredictException
    */
   public DimReductionModelPrediction predictDimReduction(RowData data) throws PredictException {
-    double[] preds = preamble(ModelCategory.DimReduction, data);
+    double[] preds = preamble(ModelCategory.DimReduction, data);  // preds contains the x factor
 
     DimReductionModelPrediction p = new DimReductionModelPrediction();
     p.dimensions = preds;
-
+    if (m instanceof GlrmMojoModel)
+      p.reconstructed = ((GlrmMojoModel) m).impute_data(preds, new double[m.nfeatures()]);
     return p;
 
   }

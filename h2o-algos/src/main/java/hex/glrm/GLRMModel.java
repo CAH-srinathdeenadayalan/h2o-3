@@ -1,6 +1,9 @@
 package hex.glrm;
 
-import hex.*;
+import hex.DataInfo;
+import hex.Model;
+import hex.ModelCategory;
+import hex.ModelMetrics;
 import hex.genmodel.algos.glrm.GlrmInitialization;
 import hex.genmodel.algos.glrm.GlrmLoss;
 import hex.genmodel.algos.glrm.GlrmRegularizer;
@@ -10,7 +13,7 @@ import water.fvec.Chunk;
 import water.fvec.Frame;
 import water.fvec.Vec;
 import water.udf.CFuncRef;
-import water.util.*;
+import water.util.ArrayUtils;
 import water.util.TwoDimTable;
 
 import java.util.ArrayList;
@@ -47,7 +50,7 @@ import java.util.ArrayList;
 public class GLRMModel extends Model<GLRMModel, GLRMModel.GLRMParameters, GLRMModel.GLRMOutput>
         implements Model.GLRMArchetypes {
 
-
+  public Key<Frame> _xFactorkey;  // store key of x factor generated from dataset prediction
   //--------------------------------------------------------------------------------------------------------------------
   // Input parameters
   //--------------------------------------------------------------------------------------------------------------------
@@ -179,15 +182,15 @@ public class GLRMModel extends Model<GLRMModel, GLRMModel.GLRMParameters, GLRMMo
   }
 
 
-
-
   public GLRMModel(Key<GLRMModel> selfKey, GLRMParameters parms, GLRMOutput output) {
     super(selfKey, parms, output);
   }
 
   @Override protected Futures remove_impl( Futures fs ) {
     if (_output._init_key != null) _output._init_key.remove(fs);
+    if ((_xFactorkey!=null) && !_xFactorkey.equals(_output._representation_key)) _xFactorkey.remove(fs);
     if (_output._representation_key != null) _output._representation_key.remove(fs);
+
     return super.remove_impl(fs);
   }
 
@@ -208,21 +211,37 @@ public class GLRMModel extends Model<GLRMModel, GLRMModel.GLRMParameters, GLRMMo
   }
 
 
-
   //--------------------------------------------------------------------------------------------------------------------
   // Scoring
   //--------------------------------------------------------------------------------------------------------------------
 
   // GLRM scoring is data imputation based on feature domains using reconstructed XY (see Udell (2015), Section 5.3)
+  // Check if the frame is the same as used in training.  If yes, return the XY.  Otherwise, take the archetypes and
+  // generate new coefficients for it and then do X*Y
   private Frame reconstruct(Frame orig, Frame adaptedFr, Key<Frame> destination_key, boolean save_imputed, boolean reverse_transform) {
     int ncols = _output._names.length;
     assert ncols == adaptedFr.numCols();
     String prefix = "reconstr_";
+    _xFactorkey = gen_representation_key(orig);
 
     // Need [A,X,P] where A = adaptedFr, X = loading frame, P = imputed frame
     // Note: A is adapted to original training frame, P has columns shuffled so cats come before nums!
     Frame fullFrm = new Frame(adaptedFr);
-    Frame loadingFrm = DKV.get(_output._representation_key).get();
+    Frame loadingFrm = null;  // get this from DKV or generate it from scratch
+    // call resconstruct only if test frame key and training frame key matches plus frame dimensions match as well
+    if (!orig._key.equals(_parms._train) || !(orig.numRows() == _parms.train().numRows()) && (orig.numCols() == _parms.train().numCols())) {
+      // need to generate the X matrix and put it in as a frame ID.  Mojo predict will return one row of x as a double[]
+      GLRMGenX gs = new GLRMGenX(this, _parms._k);
+      _xFactorkey = Key.make("GLRMLoading_"+orig._key); // need to change xFactorkey here
+      gs.doAll(gs._k, Vec.T_NUM, orig);
+      String[] loadingFrmNames = new String[gs._k];
+      for (int index=1; index <= gs._k; index++)
+        loadingFrmNames[index-1] = "Arch"+index;
+      String[][] loadingFrmDomains = new String[gs._k][];
+      DKV.put(gs.outputFrame(_xFactorkey,loadingFrmNames, loadingFrmDomains));
+    }
+  //  Key newXKey = gen_representation_key(orig);
+    loadingFrm = DKV.get(_xFactorkey).get();
     fullFrm.add(loadingFrm);
     String[][] adaptedDomme = adaptedFr.domains();
     Vec anyVec = fullFrm.anyVec();
@@ -232,7 +251,7 @@ public class GLRMModel extends Model<GLRMModel, GLRMModel.GLRMParameters, GLRMMo
       v.setDomain(adaptedDomme[i]);
       fullFrm.add(prefix + _output._names[i], v);
     }
-    GLRMScore gs = new GLRMScore(ncols, _parms._k, save_imputed, reverse_transform).doAll(fullFrm);
+    GLRMScore gs = new GLRMScore(ncols, _parms._k, save_imputed, reverse_transform).doAll(fullFrm); // reconstruct X*Y
 
     // Return the imputed training frame
     int x = ncols + _parms._k, y = fullFrm.numCols();
@@ -242,6 +261,13 @@ public class GLRMModel extends Model<GLRMModel, GLRMModel.GLRMParameters, GLRMMo
     DKV.put(f);
     gs._mb.makeModelMetrics(GLRMModel.this, orig, null, null);   // save error metrics based on imputed data
     return f;
+  }
+
+  public Key<Frame> gen_representation_key(Frame fr) {
+    if (fr._key == _parms.train()._key || _xFactorkey == null)
+      return _output._representation_key;
+    else
+      return Key.make("GLRMLoading_"+fr._key);
   }
 
   @Override protected Frame predictScoreImpl(Frame orig, Frame adaptedFr, String destination_key, Job j, boolean computeMetrics, CFuncRef customMetricFunc) {
@@ -389,7 +415,7 @@ public class GLRMModel extends Model<GLRMModel, GLRMModel.GLRMParameters, GLRMMo
 
     // Append loading frame X for calculating XY
     Frame fullFrm = new Frame(adaptedFr);
-    Frame loadingFrm = DKV.get(_output._representation_key).get();
+    Frame loadingFrm = DKV.get(gen_representation_key(frame)).get();
     fullFrm.add(loadingFrm);
 
     GLRMScore gs = new GLRMScore(ncols, _parms._k, false).doAll(fullFrm);
