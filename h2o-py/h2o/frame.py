@@ -2577,6 +2577,42 @@ class H2OFrame(object):
             raise H2OValueError("'index' argument is not type enum, time or int")
         return H2OFrame._expr(expr=ExprNode("pivot",self,index,column,value))
 
+    def rankWithinGroupBy(self, groupbyCols, sortCols, ascending=[], newColName="New_Rank_column"):
+        """
+        Return a new frame that is sorted by columns specified in sortCols with sorting direction specified
+        by ascending.  In addition, a new column is added to the frame that denotes the rank of the row
+        within the grouping specified by the groupbyCols.
+
+        :param groupbyCols: The columns to group on (either a single column name/index, or a list of column names
+          or column indices
+        :param sortCols: The columns to sort on (either a single column name/index, or a list of column names or
+          column indices
+        :param ascending: Optional Boolean array to denote sorting direction for each sorting column.  True for
+          ascending, False for descending.  Default is ascending sort.  Sort direction for enums will be ignored.
+        :param newColName: Optional String to denote the new column names.  Default to New_Rank_column.
+
+        :return: a new Frame sorted by columns in sortCols with new rank column within the grouping specified
+          by the groupbyCols.
+        """
+        assert_is_type(groupbyCols, str, int, [str, int])
+        if type(groupbyCols) != list: groupbyCols = [groupbyCols]
+        if type(sortCols) != list: sortCols = [sortCols]
+
+        if type(ascending) != list: ascending = [ascending]   # convert to list
+        ascendingI=[1]*len(sortCols)  # intitalize sorting direction to ascending by default
+        for c in sortCols:
+            if self.type(c) not in ["enum","time","int","real"]:
+                raise H2OValueError("Sort by column: " + str(c) + " not of enum, time, int or real type")
+        for c in groupbyCols:
+            if self.type(c) not in ["enum","time","int","real"]:
+                raise H2OValueError("Group by column: " + str(c) + " not of enum, time, int or real type")
+
+        if len(ascending)>0:  # user did not specify sort direction, assume all columns ascending
+            assert len(ascending)==len(sortCols), "Sorting direction must be specified for each sorted column."
+            for index in range(len(sortCols)):
+                ascendingI[index]=1 if ascending[index] else -1
+        return H2OFrame._expr(expr=ExprNode("rank_within_groupby",self,groupbyCols,sortCols,ascendingI,newColName))
+
     def topNBottomN(self, column=0, nPercent=10, grabTopN=-1):
         """
         Given a column name or one column index, a percent N, this function will return the top or bottom N% of the
