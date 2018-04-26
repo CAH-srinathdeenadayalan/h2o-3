@@ -2110,7 +2110,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
         RowData rowData = new RowData();
         BufferedString bStr = new BufferedString();
         for (int row = 0; row < fr.numRows(); row++) { // For all rows, single-threaded
-      //    if (rnd.nextDouble() >= fraction) continue;
+          if (rnd.nextDouble() >= fraction) continue;
 
           if (genmodel instanceof GlrmMojoModel)  // enable random seed setting to ensure reproducibility
             ((GlrmMojoModel) genmodel)._rcnt = row;
